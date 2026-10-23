@@ -40,6 +40,7 @@ final class Config {
     static final String FILE_NAME = "config.json";
     static final String WALLPAPER_NAME = "wallpaper.jpg";
     static final String SETTINGS_NAME = "launcher_settings";
+    static final String CONTINUE_SHELF_KEY = "continue_shelf", DOCK_PEEK_KEY = "dock_peek";
     static final String ROWS_BELOW_DOCK_KEY = "rows_below_dock";
     static final String WALLPAPER_CHOICE_KEY = "wallpaper_choice";
     static final String DOCK_OPACITY_KEY = "dock_opacity";
@@ -198,6 +199,10 @@ final class Config {
     final Map<String, Set<String>> wallpaperMoods;
     /** Shape of the glow behind the focused app (config.xml, glow_style): {@link #GLOW_RADIAL} or {@link #GLOW_HORIZON}. */
     final String glowStyle;
+    /** The Continue watching row under the dock (config.xml, continue_shelf; ContinueShelf). The on-TV choice wins. */
+    boolean continueShelf;
+    /** How far the dock sinks while focus is in the top bar (config.xml, dock_peek; DockPeek). The on-TV choice wins. */
+    String dockPeek = DockPeek.NONE;
 
     static final String GLOW_RADIAL = "radial", GLOW_HORIZON = "horizon";
     /** Show each rotating wallpaper's name from wallpapers/captions.txt (config.xml / theme wallpaper_captions). */
@@ -363,6 +368,11 @@ final class Config {
         boolean library = res.getBoolean(R.bool.app_library);
         boolean librarySelection = res.getBoolean(R.bool.app_library_selection);
         int background = 0xFF000000;
+        try {
+            String bg = res.getString(R.string.background_color).trim();
+            if (!bg.isEmpty()) background = 0xFF000000 | android.graphics.Color.parseColor(bg);
+        } catch (IllegalArgumentException ignored) {
+        }
         int skyIntensity = res.getInteger(R.integer.sky_intensity);
         int[] settingsKeycodes = res.getIntArray(R.array.settings_key_keycodes);
         boolean settingsKeyPanel = res.getBoolean(R.bool.settings_key_panel);
@@ -387,6 +397,8 @@ final class Config {
         int cinematicScrim = res.getInteger(R.integer.cinematic_scrim);
         Map<String, Set<String>> wallpaperMoods = moods(res.getString(R.string.wallpaper_moods));
         String glowStyle = res.getString(R.string.glow_style);
+        boolean continueShelf = res.getBoolean(R.bool.continue_shelf);
+        String dockPeek = res.getString(R.string.dock_peek);
         boolean applied = false;
 
         File dir = dir(ctx);
@@ -467,6 +479,8 @@ final class Config {
             JSONObject moods = json.optJSONObject("wallpaper_moods");
             if (moods != null) wallpaperMoods = moods(moods);
             glowStyle = string(json, "glow_style", glowStyle);
+            continueShelf = bool(json, CONTINUE_SHELF_KEY, continueShelf);
+            dockPeek = string(json, DOCK_PEEK_KEY, dockPeek);
         }
         // A theme push or reset invalidates choices made on the TV. On first use, remember the
         // current theme without clearing choices from an older launcher version.
@@ -479,6 +493,8 @@ final class Config {
         if (chosenRows >= 0 && chosenRows <= 3) rowsBelow = chosenRows;
         animations = choices.getBoolean("animations", animations);
         advancedEffects = choices.getBoolean("advanced_effects", advancedEffects);
+        continueShelf = choices.getBoolean(CONTINUE_SHELF_KEY, continueShelf);
+        dockPeek = DockPeek.mode(choices.getString(DOCK_PEEK_KEY, dockPeek));
         File wallpaper = dir != null ? new File(dir, WALLPAPER_NAME) : null;
         if (wallpaper != null && !(wallpaper.isFile() && wallpaper.length() > 0)) wallpaper = null;
         // A theme can also switch the wallpaper off while the file is still there.
@@ -512,7 +528,7 @@ final class Config {
         Festival festival = json == null ? Festival.NONE : Festival.parse(string(json, "festival", ""),
                 string(json, "festival_until", ""), string(json, "greeting", ""), string(json, "accent_color", ""));
 
-        return new Config(dock, fillDock, hidden, libraryApps, liveTv, liveTvAction, liveTvInputId, packageMap(launchActions), packageMap(appLabels),
+        Config config = new Config(dock, fillDock, hidden, libraryApps, liveTv, liveTvAction, liveTvInputId, packageMap(launchActions), packageMap(appLabels),
                 packageMap(appBanners), panelService,
                 panelAction, panelExtra, coocaaSources, inputAction, inputUriScheme,
                 Math.max(1, columns), Math.max(0, rowsBelow), animations, advancedEffects,
@@ -521,6 +537,9 @@ final class Config {
                 wallpapers, rotationMinutes, wallpaperDim, dockOpacity, wallpaperOrder, applied,
                 festival, inputKeycodes, appKeys, stockHomeRedirect, json == null ? Collections.emptyList() : raceCalendar(json), cinematic, ambientGlow, appGlow, fadeRows,
                 Math.max(0, idleClockMinutes), keyFilter, dockGlass, glowStyle, wallpaperCaptions, handleViewInputs, tileMenu, dockEvenPadding, cinematicDots, cinematicWhiteFocus, wifiStatusColor, cinematicScrim, cinematicArt, wallpaperMoods, gamepadPassthrough);
+        config.continueShelf = continueShelf;
+        config.dockPeek = DockPeek.mode(dockPeek);
+        return config;
     }
 
     /**
@@ -564,11 +583,13 @@ final class Config {
             SharedPreferences.Editor editor = choices.edit();
             if (!"absent".equals(token)) editor.remove("columns").remove("animations")
                     .remove("advanced_effects").remove(ROWS_BELOW_DOCK_KEY).remove(WALLPAPER_CHOICE_KEY)
-                    .remove(DOCK_OPACITY_KEY);
+                    .remove(DOCK_OPACITY_KEY)
+                    .remove(CONTINUE_SHELF_KEY).remove(DOCK_PEEK_KEY);
             editor.putString(THEME_SIGNATURE_KEY, signature).commit();
         } else if (!seen.equals(signature)) {
             choices.edit().remove("columns").remove("animations").remove("advanced_effects")
                     .remove(ROWS_BELOW_DOCK_KEY).remove(WALLPAPER_CHOICE_KEY).remove(DOCK_OPACITY_KEY)
+                    .remove(CONTINUE_SHELF_KEY).remove(DOCK_PEEK_KEY)
                     .putString(THEME_SIGNATURE_KEY, signature).commit();
         }
     }

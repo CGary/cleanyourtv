@@ -21,6 +21,12 @@
     <!-- YaOS (Yandex TV OS): HDMI, AV and the tuner all play in com.yandex.tv.live, whose activities require
          this permission (protection level normal, so it is granted at install). Ignored on other TVs. -->
     <uses-permission android:name="yandex.tv.permission.ACCESS_TV_SOURCE" />
+    <!-- Continue watching row (continue_shelf, ContinueShelf) only: the artwork the apps link from their Watch Next
+         rows. Nothing else in the launcher goes online, and with continue_shelf off nothing does. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Continue watching row: the apps' rows in the system's Continue watching (docs/watch-next.md). A runtime
+         permission; MainActivity asks for it once when the row is on. -->
+    <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
 
     <!-- Android 11+ package visibility: lets the launcher list the TV apps it shows as tiles, and the
          apps that declare a module card (docs/specs/card.md). -->
@@ -60,6 +66,8 @@
         <package android:name="com.xiaomi.mitv.settings" />
         <package android:name="com.tcl.settings" />
         <package android:name="com.amazon.tv.launcher" />
+        <!-- The Continue watching row: the apps' rows in the TV provider. -->
+        <provider android:authorities="android.media.tv" />
         <!-- Coocaa OS sources for the Inputs menu (coocaa_sources); see CoocaaSources. -->
         <provider android:authorities="com.skyworth.tv.provider" />
         <provider android:authorities="com.skyworth.tv.sdk.provider" />

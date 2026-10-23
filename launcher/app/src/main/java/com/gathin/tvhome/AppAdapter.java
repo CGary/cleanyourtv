@@ -62,7 +62,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     static final class Entry {
-        static final int APP = 0, HOME_SETTINGS = 1, CARD = 2, EMPTY = 3;
+        static final int APP = 0, HOME_SETTINGS = 1, CARD = 2, EMPTY = 3, SHELF = 4;
 
         final int kind;
         final String label;
@@ -74,6 +74,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final String name;
         /** Ambient glow colour; 0 until sampled from the banner, or the card's accent from the start. */
         int ambient;
+        /** SHELF: what the tile opens (ContinueShelf.intentFor). */
+        String target;
 
         Entry(String label, ComponentName component, Drawable banner, Drawable icon) {
             this(APP, label, component, banner, icon, null, 0);
@@ -209,6 +211,10 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** Tile names and bundled banners that replace the app's own (config.xml, app_labels and app_banners). */
     private final Map<String, String> appLabels, appBanners;
     private final List<Entry> items = new ArrayList<>();
+    /** The Continue watching row (ContinueShelf): one full row under the dock, or empty for none. */
+    private List<Entry> shelf = Collections.emptyList();
+    /** Position of the shelf's first tile at the last reload(), or -1 when it is not shown. */
+    private int shelfStart = -1;
 
     AppAdapter(Context ctx, TileListener listener, int dockSize, Config cfg) {
         this.ctx = ctx;
@@ -321,9 +327,55 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             fresh.add(docked + i, new Entry(Entry.EMPTY, "", new ComponentName(ctx, "empty-dock-slot-" + i),
                     null, null, null, 0));
         }
+        // The Continue watching row goes right under the dock, outside reorder mode: it is not the owner's to move.
+        shelfStart = -1;
+        if (dockRow && !reordering && shelf.size() == dockSize && fresh.size() >= dockSize) {
+            fresh.addAll(dockSize, shelf);
+            shelfStart = dockSize;
+        }
         items.clear();
         items.addAll(fresh);
         notifyDataSetChanged();
+    }
+
+    /**
+     * New Continue watching row. Returns true when the tiles must be rebuilt (reload()) because the row appears, goes or
+     * holds other titles; artwork for the same titles is swapped in place.
+     */
+    boolean setShelf(List<ContinueShelf.Item> row) {
+        List<Entry> next = new ArrayList<>();
+        for (ContinueShelf.Item i : row) {
+            Drawable art = i.tile == null ? null : new android.graphics.drawable.BitmapDrawable(ctx.getResources(), i.tile);
+            Entry e = new Entry(Entry.SHELF, i.title, new ComponentName(i.pkg, "shelf:" + i.id),
+                    art, null, null, 0);
+            e.target = i.target;
+            next.add(e);
+        }
+        boolean sameTitles = next.size() == shelf.size();
+        for (int k = 0; sameTitles && k < next.size(); k++) {
+            sameTitles = next.get(k).component.equals(shelf.get(k).component);
+        }
+        shelf = next;
+        if (!sameTitles) return true;
+        if (shelfStart < 0) return false;
+        for (int k = 0; k < next.size(); k++) {
+            int pos = shelfStart + k;
+            if (pos < items.size() && items.get(pos).kind == Entry.SHELF
+                    && bitmapOf(items.get(pos).banner) != bitmapOf(next.get(k).banner)) {
+                items.set(pos, next.get(k));
+                notifyItemChanged(pos);
+            }
+        }
+        return false;
+    }
+
+    private static Bitmap bitmapOf(Drawable d) {
+        return d instanceof android.graphics.drawable.BitmapDrawable ? ((android.graphics.drawable.BitmapDrawable) d).getBitmap() : null;
+    }
+
+    /** The Continue watching row is shown, or would come back once reorder mode ends. */
+    boolean hasShelf() {
+        return !shelf.isEmpty();
     }
 
     /** A banner_* drawable bundled with the launcher, or null for none or a name that is not one. */
@@ -474,6 +526,19 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             return;
         }
+        if (e.kind == Entry.SHELF) {
+            try {
+                ctx.startActivity(ContinueShelf.intentFor(e.target, e.pkg));
+            } catch (Exception ex) {
+                Intent app = ctx.getPackageManager().getLeanbackLaunchIntentForPackage(e.pkg);
+                try {
+                    if (app != null) ctx.startActivity(app.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                } catch (Exception ignored) {
+                    Toast.makeText(ctx, ctx.getString(R.string.cant_open, e.label), Toast.LENGTH_SHORT).show();
+                }
+            }
+            return;
+        }
         Intent i = new Intent(Intent.ACTION_MAIN)
                 .setComponent(e.component)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
@@ -510,7 +575,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     @Override public int getItemViewType(int position) { return isLibraryAt(position) ? 1 : 0; }
 
     boolean containsPackage(String pkg) {
-        for (Entry entry : items) if (entry.pkg.equals(pkg)) return true;
+        for (Entry entry : items) if (entry.kind != Entry.SHELF && entry.pkg.equals(pkg)) return true;
         return false;
     }
 

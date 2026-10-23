@@ -61,6 +61,7 @@ import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.animation.AnimationUtils;
+import android.view.animation.DecelerateInterpolator;
 import android.view.animation.LayoutAnimationController;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -215,6 +216,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean reducedMotion;
     /** config.xml dock_row: the first row is a separate dock (band, parked low, top shelf) rather than plain grid. */
     private boolean dockRow;
+    /** The Continue watching row under the dock (config.xml continue_shelf), or null when it is off. */
+    private ContinueShelf continueShelf;
+    /** config.xml dock_peek (DockPeek): how far the dock sinks while focus is in the top bar. */
+    private String dockPeek = DockPeek.NONE;
+    private boolean dockPeeking;
+    private static final int TV_LISTINGS_REQUEST = 7;
     /** The highlight springs past its target (config.xml, focus_overshoot); false goes straight there. */
     private boolean focusOvershoot;
     /** Festive skin from the theme (see Festival); applied while it is active today. */
@@ -524,6 +531,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         Order savedOrder = Order.load(Order.file(this));
         adapter.setSavedOrder(Order.ranks(savedOrder, dockApps), Order.docked(savedOrder, dockApps));
         grid.setAdapter(adapter);
+        dockPeek = cfg.dockPeek;
+        if (cfg.continueShelf && dockRow) {
+            // Artwork is composed at about twice the 1080p tile size and scaled down by the tile, like app banners.
+            int artW = Math.round(AppAdapter.DESIGN_W_DP * 2 * density);
+            continueShelf = new ContinueShelf(this, COLUMNS, artW, AppAdapter.tileHeightPx(artW), (row, artworkOnly) -> {
+                if (isDestroyed()) return;
+                if (adapter.setShelf(row) && !reordering) reloadApps(false);
+            });
+            askForTvListings();
+        }
 
         // tvOS layout: push the dock row towards the bottom of the screen, leaving room for
         // rows_below_dock grid rows under it; the rest of the grid stays below until you press Down.
@@ -690,6 +707,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         getWindow().getDecorView().getViewTreeObserver().addOnGlobalFocusChangeListener((oldF, newF) -> {
             boolean onTile = newF != null && newF.getId() == R.id.card;
             if (!onTile) hideGlass();
+            setDockPeek(!onTile && inTopBar(newF));
         });
 
         packageFilter.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -839,6 +857,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             default:
                 break;
         }
+        if (continueShelf != null) continueShelf.refresh();
         if (openLiveTvAfterBoot()) return;
         updateGreeting();
         updateRace();
@@ -1085,6 +1104,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (continueShelf != null) continueShelf.shutdown();
         unregisterReceiver(packageReceiver);
         wallpaperPlayer.close();
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
@@ -1212,7 +1232,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         dockedAtStart = adapter.dockFilled();
         for (int i = 0; i < Math.min(dockedAtStart, adapter.movableCount()); i++) dockInSession.add(adapter.keyAt(i));
         adapter.setReordering(true);
-        if (adapter.hasEmptySlots()) reloadTiles();   // every position must hold a tile that can move
+        // Every position must hold a tile that can move: no empty dock slots, no Continue watching row.
+        if (adapter.hasEmptySlots() || adapter.hasShelf()) reloadTiles();
         reordering = true;
         orderAtStart = adapter.movableKeys();
         glass.setAccent(REORDER_ACCENT);
@@ -1380,7 +1401,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 Toast.makeText(this, R.string.reorder_not_saved, Toast.LENGTH_SHORT).show();
             }
         }
-        if (fillDockLeavesSlots) reloadTiles();   // the empty dock slots left out while reordering come back
+        // The empty dock slots and the Continue watching row left out while reordering come back.
+        if (fillDockLeavesSlots || adapter.hasShelf()) reloadTiles();
     }
 
     /**
@@ -1571,6 +1593,62 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         int h = (int) (card.getHeight() * scale + 2 * pad);
         if (!glassShown || card.getWidth() != glassCardW || glass.getWidth() != w || glass.getHeight() != h) {
             onTileFocused(pos, card);
+        }
+    }
+
+    // ---- Continue watching row and dock peek -----------------------------------------------------
+
+    /**
+     * The Continue watching row reads the system's Watch Next only with READ_TV_LISTINGS. Asked once; a "no" leaves
+     * no row, and `pm grant` or Settings > Apps can grant it later.
+     */
+    private void askForTvListings() {
+        String permission = "android.permission.READ_TV_LISTINGS";
+        if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) return;
+        SharedPreferences prefs = getSharedPreferences(Config.SETTINGS_NAME, MODE_PRIVATE);
+        if (prefs.getBoolean("tv_listings_asked", false)) return;
+        prefs.edit().putBoolean("tv_listings_asked", true).apply();
+        requestPermissions(new String[]{permission}, TV_LISTINGS_REQUEST);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == TV_LISTINGS_REQUEST && continueShelf != null) continueShelf.refresh();
+    }
+
+    private boolean inTopBar(View v) {
+        for (View at = v; at != null; at = at.getParent() instanceof View ? (View) at.getParent() : null) {
+            if (at.getId() == R.id.topButtons) return true;
+        }
+        return false;
+    }
+
+    /** Sinks the dock (DockPeek) while focus is in the top bar, and brings it back when a tile takes focus. */
+    private void setDockPeek(boolean peek) {
+        peek = peek && dockRow && !reordering && !DockPeek.NONE.equals(dockPeek);
+        if (peek == dockPeeking) return;
+        float target = 0f;
+        if (peek) {
+            RecyclerView.ViewHolder dock = grid.findViewHolderForAdapterPosition(0);
+            if (dock == null) return;
+            // Layout position in root coordinates (the grid's current translation is ignored), plus the band's
+            // DockDecoration offsets above and below the row.
+            Rect band = new Rect(0, 0, dock.itemView.getWidth(), dock.itemView.getHeight());
+            root.offsetDescendantRectToMyCoords(dock.itemView, band);
+            int top = band.top - Math.round(6 * density);
+            int height = band.height() + Math.round(AppAdapter.DOCK_EXTRA_DP * density);
+            target = DockPeek.offset(dockPeek, root.getHeight(), top, height, density);
+            if (target <= 0f) return;
+            hideHero();
+        }
+        dockPeeking = peek;
+        grid.animate().cancel();
+        if (!animations || reducedMotion) {
+            grid.setTranslationY(target);
+        } else {
+            grid.animate().translationY(target).setDuration(peek ? 260 : 220)
+                    .setInterpolator(new DecelerateInterpolator(peek ? 1.6f : 2f)).start();
         }
     }
 
@@ -2107,7 +2185,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     rtlAppGrid, keyCode == KeyEvent.KEYCODE_DPAD_LEFT);
         }
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            if (position < COLUMNS) return false;          // dock row: let focus move to the top bar
+            if (position < COLUMNS) {
+                // Dock row: up to the nearest top-bar button. The bar's buttons sit at one end, so the default
+                // focus search finds nothing above the tiles at the other end and focus would stay put.
+                RecyclerView.ViewHolder from = grid.findViewHolderForAdapterPosition(position);
+                View button = from == null ? null : nearestTopButton(from.itemView);
+                if (button == null) return false;
+                button.requestFocus();
+                grid.playSoundEffect(SoundEffectConstants.NAVIGATION_UP);
+                return true;
+            }
             target = position - COLUMNS;
         } else {
             int lastRowStart = ((count - 1) / COLUMNS) * COLUMNS;
@@ -2131,6 +2218,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     /** The first top-bar button after Inputs that is shown: the network pill, Reorder, then Settings (always there). */
+    /** The visible top-bar button horizontally closest to {@code tile}, or null when the bar has none. */
+    private View nearestTopButton(View tile) {
+        int[] at = new int[2];
+        tile.getLocationOnScreen(at);
+        float center = at[0] + tile.getWidth() / 2f;
+        View best = null;
+        float bestDistance = Float.MAX_VALUE;
+        for (View b : new View[]{btnInputs, btnWifi, btnReorder, btnLibraryTop, findViewById(R.id.btnSettings)}) {
+            if (b == null || b.getVisibility() != View.VISIBLE || !b.isFocusable()) continue;
+            b.getLocationOnScreen(at);
+            float distance = Math.abs(at[0] + b.getWidth() / 2f - center);
+            if (distance < bestDistance) { bestDistance = distance; best = b; }
+        }
+        return best;
+    }
+
     private View firstTopButton() {
         if (btnWifi.getVisibility() == View.VISIBLE) return btnWifi;
         if (btnReorder.getVisibility() == View.VISIBLE) return btnReorder;

@@ -112,6 +112,16 @@
             android:textSize="14sp" />
 
         <TextView
+            android:id="@+id/continueShelfChoice"
+            style="@style/SettingsRow"
+            android:layout_marginTop="18dp" />
+
+        <TextView
+            android:id="@+id/dockPeekChoice"
+            style="@style/SettingsRow"
+            android:layout_marginTop="10dp" />
+
+        <TextView
             android:id="@+id/followThemeChoice"
             style="@style/SettingsRow"
             android:layout_marginTop="18dp"

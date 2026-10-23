@@ -27,6 +27,10 @@ public final class LauncherSettingsActivity extends Activity {
     private TextView animationsChoice;
     private TextView advancedChoice;
     private TextView followThemeChoice;
+    private TextView continueShelfChoice;
+    private TextView dockPeekChoice;
+    private boolean continueShelf;
+    private String dockPeek;
     private int columns;
     private int rowsBelowDock;
     private int dockOpacity;
@@ -50,6 +54,8 @@ public final class LauncherSettingsActivity extends Activity {
         dockOpacity = config.dockOpacity;
         animations = config.animations;
         advancedEffects = config.animations && config.advancedEffects;
+        continueShelf = config.continueShelf;
+        dockPeek = config.dockPeek;
 
         int[] ids = {R.id.columns4, R.id.columns5, R.id.columns6, R.id.columns7};
         for (int i = 0; i < ids.length; i++) {
@@ -118,18 +124,35 @@ public final class LauncherSettingsActivity extends Activity {
                         .show();
             }
         });
+        continueShelfChoice = findViewById(R.id.continueShelfChoice);
+        continueShelfChoice.setOnClickListener(v -> {
+            continueShelf = !continueShelf;
+            choices.edit().putBoolean(Config.CONTINUE_SHELF_KEY, continueShelf).apply();
+            changed();
+            refresh();
+        });
+        dockPeekChoice = findViewById(R.id.dockPeekChoice);
+        dockPeekChoice.setOnClickListener(v -> {
+            dockPeek = DockPeek.next(dockPeek);
+            choices.edit().putString(Config.DOCK_PEEK_KEY, dockPeek).apply();
+            changed();
+            refresh();
+        });
         followThemeChoice = findViewById(R.id.followThemeChoice);
         followThemeChoice.setOnClickListener(v -> {
             if (!hasOnTvChoices()) return;
             choices.edit().remove("columns").remove(Config.ROWS_BELOW_DOCK_KEY).remove("animations")
                     .remove("advanced_effects").remove(Config.WALLPAPER_CHOICE_KEY)
-                    .remove(Config.DOCK_OPACITY_KEY).commit();
+                    .remove(Config.DOCK_OPACITY_KEY)
+                    .remove(Config.CONTINUE_SHELF_KEY).remove(Config.DOCK_PEEK_KEY).commit();
             Config current = Config.load(this);
             columns = current.columns;
             rowsBelowDock = current.rowsBelowDock;
             dockOpacity = current.dockOpacity;
             animations = current.animations;
             advancedEffects = current.animations && current.advancedEffects;
+            continueShelf = current.continueShelf;
+            dockPeek = current.dockPeek;
             changed();
             refresh();
         });
@@ -232,13 +255,19 @@ public final class LauncherSettingsActivity extends Activity {
                 "none".equals(wallpaperCurrent) ? getString(R.string.wallpaper_none)
                         : wallpaperCurrent != null ? wallpaperCurrent
                         : getString(R.string.wallpaper_theme_default)));
+        continueShelfChoice.setText(getString(R.string.continue_shelf_state,
+                getString(continueShelf ? R.string.on : R.string.off)));
+        dockPeekChoice.setText(getString(R.string.dock_peek_state, getString(
+                DockPeek.ULTRA.equals(dockPeek) ? R.string.dock_peek_ultra
+                        : DockPeek.BALANCED.equals(dockPeek) ? R.string.dock_peek_balanced : R.string.dock_peek_none)));
         followThemeChoice.setSelected(!hasOnTvChoices());
     }
 
     private boolean hasOnTvChoices() {
         return choices.contains("columns") || choices.contains(Config.ROWS_BELOW_DOCK_KEY)
                 || choices.contains("animations") || choices.contains("advanced_effects")
-                || choices.contains(Config.WALLPAPER_CHOICE_KEY) || choices.contains(Config.DOCK_OPACITY_KEY);
+                || choices.contains(Config.WALLPAPER_CHOICE_KEY) || choices.contains(Config.DOCK_OPACITY_KEY)
+                || choices.contains(Config.CONTINUE_SHELF_KEY) || choices.contains(Config.DOCK_PEEK_KEY);
     }
 
     private void open(Intent intent) {

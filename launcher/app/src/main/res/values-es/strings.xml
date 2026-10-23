@@ -28,6 +28,11 @@
     <string name="columns_label">Aplicaciones por fila</string>
     <string name="dock_opacity_label">Opacidad de la barra del dock</string>
     <string name="animations_state">Animaciones: %1$s</string>
+    <string name="continue_shelf_state">Fila Seguir viendo: %1$s</string>
+    <string name="dock_peek_state">Dock con el foco arriba: %1$s</string>
+    <string name="dock_peek_none">fijo</string>
+    <string name="dock_peek_balanced">a medias</string>
+    <string name="dock_peek_ultra">casi oculto</string>
     <string name="advanced_effects">Efectos avanzados</string>
     <string name="advanced_effects_state">Efectos avanzados: %1$s</string>
     <string name="advanced_effects_warning">Eleva las tarjetas, amplía los iconos y suaviza los cambios de color. Puede aumentar el uso de memoria; depende del televisor.</string>

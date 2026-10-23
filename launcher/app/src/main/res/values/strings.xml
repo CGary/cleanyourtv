@@ -55,6 +55,11 @@
     <string name="wallpaper_applied">Wallpaper changed</string>
     <string name="wallpaper_theme_default">Theme default</string>
     <string name="animations_state">Animations: %1$s</string>
+    <string name="continue_shelf_state">Continue watching row: %1$s</string>
+    <string name="dock_peek_state">Dock while the top bar has focus: %1$s</string>
+    <string name="dock_peek_none">stays</string>
+    <string name="dock_peek_balanced">half down</string>
+    <string name="dock_peek_ultra">almost hidden</string>
     <string name="advanced_effects">Advanced effects</string>
     <string name="advanced_effects_state">Advanced effects: %1$s</string>
     <string name="advanced_effects_warning">Adds a lifted tile, icon zoom and smooth colour transitions. May increase memory use; the actual difference depends on your TV.</string>
